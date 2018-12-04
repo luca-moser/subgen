@@ -31,6 +31,7 @@ var tag = flag.String("tag", defaultTag, "the tag to use")
 var remotePoW = flag.Bool("remote", true, "whether to do remote PoW")
 var broadcastInterval = flag.Int("broadcastInterval", 10, "the interval (ms) between sending off txs of the build subtangle")
 var retain = flag.Bool("retain", false, "whether to indefinitely generate txs and broadcast them up on key press")
+var wideness = flag.Int("wideness", 30, "wideness of the subtangle")
 
 const snapshotFile = "./subtangle.snap"
 
@@ -111,7 +112,7 @@ func build(api *API) Subtangle {
 		}()
 	}
 	subtangle := Subtangle{}
-
+	w := *wideness
 out:
 	for i := 0; i < subtangleSize; i++ {
 		if stopGenerating != nil {
@@ -134,12 +135,12 @@ out:
 			rT := rand.Int()
 			rB := rand.Int()
 			l := len(subtangle)
-			if l < 5 {
+			if l < w {
 				trunk = subtangle[rT%len(subtangle)].Hash
 				branch = subtangle[rB%len(subtangle)].Hash
 			} else {
-				trunk = subtangle[l-5+rT%5].Hash
-				branch = subtangle[l-5+rB%5].Hash
+				trunk = subtangle[l-w+rT%w].Hash
+				branch = subtangle[l-w+rB%w].Hash
 			}
 		}
 		readyTrytes, err := api.AttachToTangle(trunk, branch, 14, prep)
