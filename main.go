@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/gob"
 	"flag"
@@ -29,6 +30,7 @@ var node = flag.String("node", defaultNode, "the node to use")
 var tag = flag.String("tag", defaultTag, "the tag to use")
 var remotePoW = flag.Bool("remote", true, "whether to do remote PoW")
 var broadcastInterval = flag.Int("broadcastInterval", 10, "the interval (ms) between sending off txs of the build subtangle")
+var retain = flag.Bool("retain", false, "whether to indefinitely generate txs and broadcast them up on key press")
 
 const snapshotFile = "./subtangle.snap"
 
@@ -97,9 +99,28 @@ func build(api *API) Subtangle {
 	emptyTransfers := bundle.Transfers{bundle.EmptyTransfer}
 	emptyTransfers[0].Tag = *tag
 	subtangleSize := *num
+	var stopGenerating chan struct{}
+	if *retain {
+		stopGenerating = make(chan struct{})
+		fmt.Printf(">retain mode, generating txs indefinitely (hit enter to broadcast)\n")
+		subtangleSize = 1000000
+		go func() {
+			reader := bufio.NewReader(os.Stdin)
+			reader.ReadLine()
+			stopGenerating <- struct{}{}
+		}()
+	}
 	subtangle := Subtangle{}
 
+out:
 	for i := 0; i < subtangleSize; i++ {
+		if stopGenerating != nil {
+			select {
+			case <-stopGenerating:
+				break out
+			default:
+			}
+		}
 		prep, err := api.PrepareTransfers(emptySeed, emptyTransfers, PrepareTransfersOptions{})
 		must(err)
 
@@ -126,7 +147,11 @@ func build(api *API) Subtangle {
 		tx, err := transaction.AsTransactionObject(readyTrytes[0])
 		must(err)
 		subtangle = append(subtangle, *tx)
-		fmt.Printf("\rgenerating txs %d/%d", i+1, subtangleSize)
+		if *retain {
+			fmt.Printf("\rgenerating txs %d", i+1)
+		} else {
+			fmt.Printf("\rgenerating txs %d/%d", i+1, subtangleSize)
+		}
 	}
 
 	// persist the built subtangle
@@ -161,7 +186,7 @@ func broadcast(subtangle Subtangle, api *API) {
 			}
 			break
 		}
-		fmt.Printf("\rbroadcasting txs %d/%d", i, len(txs))
+		fmt.Printf("\rbroadcasting txs %d/%d", i+1, len(txs))
 		<-time.After(time.Duration(*broadcastInterval) * time.Millisecond)
 	}
 	fmt.Printf("\npublished %d txs to the Tangle\n", len(subtangle))
